@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1220">
+    <meta name="dshm-token" content="__DSHM_TOKEN__">
+    <meta name="dshm-version" content="__DSHM_VERSION__">
+    <title>DSH 实例管理器</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" fill="none">
+              <rect x="4" y="8" width="22" height="15" rx="4" fill="url(#g1)"/>
+              <rect x="14" y="17" width="22" height="15" rx="4" fill="url(#g2)" opacity="0.92"/>
+              <circle cx="11" cy="15" r="2" fill="#06121f"/>
+              <circle cx="19" cy="15" r="2" fill="#06121f"/>
+              <defs>
+                <linearGradient id="g1" x1="4" y1="8" x2="26" y2="23" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#67e8f9"/><stop offset="1" stop-color="#3b82f6"/>
+                </linearGradient>
+                <linearGradient id="g2" x1="14" y1="17" x2="36" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#38bdf8"/><stop offset="1" stop-color="#6366f1"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="brand-copy">
+            <h1>DSH 实例管理器</h1>
+            <p>本地多实例 · 目录自定义 · 桌面配置一键继承</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn" id="btn-refresh" title="刷新状态" aria-label="刷新状态">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-btn" id="btn-settings" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.08A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.08A1.65 1.65 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="btn btn-primary" id="btn-create">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+            新建实例
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="stats" aria-label="概览">
+          <article class="stat">
+            <span class="stat-label">实例总数</span>
+            <strong id="stat-total">0</strong>
+            <span class="stat-note">独立 DSH_HOME</span>
+          </article>
+          <article class="stat stat-live">
+            <span class="stat-label">运行中</span>
+            <strong id="stat-running">0</strong>
+            <span class="stat-note" id="stat-running-note">等待启动</span>
+          </article>
+          <article class="stat">
+            <span class="stat-label">桌面配置</span>
+            <strong id="stat-desktop">—</strong>
+            <span class="stat-note" id="stat-desktop-note">检测 DSH Desktop</span>
+          </article>
+          <article class="stat stat-port">
+            <span class="stat-label">DSH 安装</span>
+            <strong id="stat-install">—</strong>
+            <span class="stat-note" id="stat-install-note">自动搜索</span>
+          </article>
+        </section>
+
+        <section class="section-head">
+          <div>
+            <h2>实例</h2>
+            <p id="instances-sub">正在读取状态…</p>
+          </div>
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5" stroke-linecap="round"/></svg>
+            <input id="search" type="search" placeholder="搜索名称或工作目录" autocomplete="off">
+          </div>
+        </section>
+
+        <div id="instance-grid" class="grid" aria-live="polite"></div>
+
+        <div id="empty" class="empty" hidden>
+          <div class="empty-art" aria-hidden="true">
+            <div class="empty-window"></div>
+            <div class="empty-window small"></div>
+            <div class="empty-dot"></div>
+          </div>
+          <h3>还没有 DSH 实例</h3>
+          <p>为每个项目创建一个实例，各自使用独立的工作目录、会话与插件；可从 DSH Desktop 复制插件与 API KEY。</p>
+          <button class="btn btn-primary" id="btn-empty-create">创建第一个实例</button>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <div>
+          <span class="footer-dot"></span>
+          数据目录 <code id="footer-data">—</code>
+        </div>
+        <div class="footer-note">实例随管理器退出而停止 · 删除实例不会删除自定义根目录</div>
+      </footer>
+    </div>
+
+    <div class="modal" id="modal-instance" hidden>
+      <div class="modal-panel modal-wide">
+        <form id="form-instance" novalidate>
+          <header class="modal-head">
+            <div>
+              <h2 id="instance-modal-title">新建实例</h2>
+              <p id="instance-modal-sub">选择实例根目录，子目录自动生成，也可以逐个修改</p>
+            </div>
+            <button type="button" class="icon-btn" data-close aria-label="关闭">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+            </button>
+          </header>
+          <div class="modal-body">
+            <div class="field-row">
+              <label class="field">
+                <span>实例名称</span>
+                <input id="field-name" name="name" maxlength="40" placeholder="例如：量化学习" required>
+              </label>
+              <label class="field">
+                <span>端口</span>
+                <input id="field-port" name="port" type="number" min="1024" max="65535" placeholder="留空自动分配">
+              </label>
+            </div>
+
+            <div class="field">
+              <span>实例根目录</span>
+              <div class="path-field">
+                <input id="field-root" placeholder="选择或输入一个目录，例如 D:\DSH\我的实例">
+                <button type="button" class="btn btn-ghost" data-browse="root">浏览…</button>
+              </div>
+              <small>推荐为一个新目录。下面的程序、数据、会话、插件、工作、日志目录都默认生成在它下面。</small>
+            </div>
+
+            <div class="dir-plan">
+              <div class="dir-plan-head">
+                <div>
+                  <strong>目录规划</strong>
+                  <small>修改根目录时，未手动改过的子目录会自动跟随；每个子目录都可以单独指定位置。</small>
+                </div>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-reset-dirs">按根目录重算</button>
+              </div>
+              <div class="dir-row">
+                <label for="field-program">程序目录</label>
+                <div class="path-field">
+                  <input id="field-program" placeholder="自动检测 DSH Desktop 安装目录">
+                  <button type="button" class="btn btn-ghost btn-sm" data-browse="program">浏览…</button>
+                </div>
+                <small id="program-note">此实例运行所用的 DSH 安装目录（留空使用全局自动检测结果）</small>
+              </div>
+              <div class="dir-row">
+                <label for="field-home">数据目录</label>
+                <div class="path-field">
+                  <input id="field-home">
+                  <button type="button" class="btn btn-ghost btn-sm" data-browse="home">浏览…</button>
+                </div>
+                <small>DSH_HOME：设置、登录凭据、存储与 profile 所在位置</small>
+              </div>
+              <div class="dir-row">
+                <label for="field-sessions">会话目录</label>
+                <div class="path-field">
+                  <input id="field-sessions">
+                  <button type="button" class="btn btn-ghost btn-sm" data-browse="sessions">浏览…</button>
+                </div>
+                <small>会话历史；自定义位置时会在数据目录内创建目录联接</small>
+              </div>
+              <div class="dir-row">
+                <label for="field-plugins">插件目录</label>
+                <div class="path-field">
+                  <input id="field-plugins">
+                  <button type="button" class="btn btn-ghost btn-sm" data-browse="plugins">浏览…</button>
+                </div>
+                <small>web profile：插件安装、升级与 bundle 配置</small>
+              </div>
+              <div class="dir-row">
+                <label for="field-workdir">工作目录</label>
+                <div class="path-field">
+                  <input id="field-workdir">
+                  <button type="button" class="btn btn-ghost btn-sm" data-browse="workdir">浏览…</button>
+                </div>
+                <small>实例内 Agent 的默认工作区，可指向已有项目目录</small>
+              </div>
+              <div class="dir-row">
+                <label for="field-logs">日志目录</label>
+                <div class="path-field">
+                  <input id="field-logs">
+                  <button type="button" class="btn btn-ghost btn-sm" data-browse="logs">浏览…</button>
+                </div>
+                <small>启动输出与错误日志</small>
+              </div>
+            </div>
+
+            <label class="check-line">
+              <input id="field-autostart" type="checkbox">
+              <span>管理器启动时自动拉起此实例</span>
+            </label>
+
+            <div class="inherit-card" id="inherit-section">
+              <div class="inherit-head">
+                <div>
+                  <strong>从 DSH Desktop 复制配置</strong>
+                  <small id="desktop-status">正在读取桌面配置…</small>
+                </div>
+                <button type="button" class="btn btn-sm btn-ghost" id="btn-refresh-desktop">刷新</button>
+              </div>
+              <label class="check-line">
+                <input id="inherit-plugins" type="checkbox">
+                <span>复制插件 <small class="inherit-note" id="inherit-plugins-note">—</small></span>
+              </label>
+              <label class="check-line">
+                <input id="inherit-credentials" type="checkbox">
+                <span>复制 API KEY <small class="inherit-note" id="inherit-credentials-note">—</small></span>
+              </label>
+              <label class="check-line">
+                <input id="inherit-config" type="checkbox">
+                <span>复制配置层（模型、权限等 <code>cordis.patch.yml</code>）<small class="inherit-note" id="inherit-config-note">—</small></span>
+              </label>
+              <p class="hint">插件会按桌面 profile 的 bundle 列表安装到本实例自己的插件目录（每个实例完整复制一份，约 150 MB）。API KEY 只复制密钥引用，不复制桌面登录会话；复制后各实例仍相互独立。</p>
+            </div>
+
+            <div class="isolation-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6l-7-3Z" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <p><strong>隔离说明</strong>：每个实例使用独立的 <code>DSH_HOME</code> 与 web profile，会话、设置、登录凭据、插件安装与升级全部互不影响。不同实例的工作目录也不会互相暴露。</p>
+            </div>
+            <div class="form-error" id="instance-error" hidden></div>
+          </div>
+          <footer class="modal-foot">
+            <button type="button" class="btn" data-close>取消</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-instance">创建实例</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-picker" hidden>
+      <div class="modal-panel modal-wide">
+        <header class="modal-head">
+          <div>
+            <h2 id="picker-title">选择目录</h2>
+            <p>浏览本机文件夹，或直接输入绝对路径</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body picker-body">
+          <div class="picker-toolbar">
+            <button type="button" class="btn btn-ghost" id="picker-up" title="上一级">↑ 上一级</button>
+            <input id="picker-path" placeholder="输入绝对路径后回车">
+            <button type="button" class="btn btn-ghost" id="picker-go">前往</button>
+          </div>
+          <div class="picker-quick" id="picker-quick"></div>
+          <div class="picker-list" id="picker-list"></div>
+          <div class="picker-new">
+            <input id="picker-new-name" placeholder="在当前目录新建文件夹…" maxlength="120">
+            <button type="button" class="btn btn-ghost" id="picker-mkdir">新建文件夹</button>
+          </div>
+        </div>
+        <footer class="modal-foot picker-foot">
+          <span class="picker-current" id="picker-current">—</span>
+          <div class="picker-actions">
+            <button type="button" class="btn" data-close>取消</button>
+            <button type="button" class="btn btn-primary" id="picker-select">选择此目录</button>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-logs" hidden>
+      <div class="modal-panel modal-wide">
+        <header class="modal-head">
+          <div>
+            <h2 id="logs-title">实例日志</h2>
+            <p id="logs-sub">显示最近 300 行</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body logs-body">
+          <pre id="logs-pre" class="logs-pre">加载中…</pre>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" id="logs-refresh">刷新</button>
+          <button type="button" class="btn" id="logs-open">打开日志目录</button>
+          <button type="button" class="btn btn-primary" data-close>关闭</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-profile" hidden>
+      <div class="modal-panel modal-wide">
+        <header class="modal-head">
+          <div>
+            <h2 id="profile-title">实例详情</h2>
+            <p>目录规划、插件与桌面配置继承状态</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body" id="profile-body"></div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" id="profile-open-root">打开根目录</button>
+          <button type="button" class="btn btn-primary" data-close>关闭</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-delete" hidden>
+      <div class="modal-panel modal-narrow">
+        <header class="modal-head">
+          <div>
+            <h2>删除实例</h2>
+            <p id="delete-sub">此操作不可撤销</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <p class="delete-text">确定要删除 <strong id="delete-name">—</strong> 吗？实例会先被停止。</p>
+          <label class="check-line">
+            <input type="checkbox" id="delete-data" checked>
+            <span>同时删除管理器数据目录中的实例数据</span>
+          </label>
+          <div class="warn-note">只会删除位于管理器数据目录内的实例根目录；若根目录是用户自定义位置，则不会被删除。工作目录中的文件永远不会被删除。</div>
+          <div class="form-error" id="delete-error" hidden></div>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete">删除实例</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-settings" hidden>
+      <div class="modal-panel">
+        <header class="modal-head">
+          <div>
+            <h2>管理器设置</h2>
+            <p>DSH 安装目录、桌面配置与运行信息</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>DSH 安装目录</span>
+            <div class="path-field">
+              <input id="settings-install" placeholder="留空自动搜索，例如 C:\Users\you\AppData\Local\Programs\DeepSeek Harness">
+              <button type="button" class="btn btn-ghost" id="settings-detect">自动检测</button>
+            </div>
+            <small id="settings-detected">—</small>
+          </label>
+          <label class="field">
+            <span>桌面配置目录（DSH_HOME）</span>
+            <div class="path-field">
+              <input id="settings-desktop" placeholder="留空自动使用 DSH_HOME 或 ~/.dsh">
+              <button type="button" class="btn btn-ghost" data-browse="settings-desktop">浏览…</button>
+            </div>
+            <small id="settings-desktop-note">用于读取 DSH Desktop 的插件、配置与 API KEY 名称</small>
+          </label>
+          <label class="field">
+            <span>DSH 命令路径（高级）</span>
+            <div class="path-field">
+              <input id="settings-command" placeholder="留空使用安装目录自动推导">
+            </div>
+            <small>一般无需修改；填写了安装目录时，命令路径由安装目录自动推导。</small>
+          </label>
+          <div class="settings-grid">
+            <div><span>管理端口</span><strong id="settings-port">—</strong></div>
+            <div><span>管理器版本</span><strong id="settings-version">—</strong></div>
+            <div class="settings-wide"><span>数据目录</span><strong id="settings-data">—</strong></div>
+          </div>
+          <div class="form-error" id="settings-error" hidden></div>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" id="settings-open-data">打开数据目录</button>
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="button" class="btn btn-primary" id="settings-save">保存</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

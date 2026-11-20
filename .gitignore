@@ -1,0 +1,12 @@
+data/*
+!data/.gitkeep
+test/.tmp/
+.tmp/
+node_modules/
+*.log
+page.html
+dom.html
+created*.json
+started.json
+shot.png
+chrome*.err
