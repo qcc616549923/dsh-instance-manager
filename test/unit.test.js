@@ -6,7 +6,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { inspectDesktop, applyCredentials, applyConfig, applyPlugins, readCredentialRefs, patchEntryIds } = require('../lib/desktop');
+const {
+  inspectDesktop,
+  applyCredentials,
+  applyConfig,
+  applyPlugins,
+  readCredentialRefs,
+  patchEntryIds,
+  repairProfileModules,
+  resolveExpectedStoreDir,
+} = require('../lib/desktop');
 const { resolveLayout, validateLayout, ensureLayout, defaultLayout } = require('../lib/layout');
 const { detectDshInstall, commandForInstallDir, resolveInstallDir } = require('../lib/dsh');
 const { Store } = require('../lib/store');
@@ -209,6 +218,184 @@ test('plugin payload copies are independent and removable', () => {
   } finally {
     fs.rmSync(source, { recursive: true, force: true });
     fs.rmSync(destination, { recursive: true, force: true });
+  }
+});
+
+test('copied plugin node_modules is repaired for the instance virtual store', () => {
+  const root = tempDir('repair');
+  try {
+    const oldProfile = path.join(root, 'desktop');
+    const instance = path.join(root, 'instance');
+    const oldModules = path.join(oldProfile, 'node_modules');
+    const newModules = path.join(instance, 'node_modules');
+    write(path.join(oldModules, '.pnpm', 'dsh-ops@0.5.2', 'node_modules', 'dsh-ops', 'index.js'), 'module.exports = 1;');
+    write(
+      path.join(oldModules, '.modules.yaml'),
+      JSON.stringify({
+        nodeLinker: 'isolated',
+        storeDir: path.join(root, 'store'),
+        virtualStoreDir: path.join(oldModules, '.pnpm'),
+      }),
+    );
+    write(
+      path.join(oldModules, '.pnpm-workspace-state-v1.json'),
+      JSON.stringify({ projects: { [oldProfile]: { name: 'dsh-profile-desktop', hasModulesDir: true } } }),
+    );
+    const external = path.join(root, 'external');
+    write(path.join(external, 'linked', 'index.js'), 'module.exports = 2;');
+    write(path.join(external, 'stale', 'index.js'), 'module.exports = 3;');
+    write(
+      path.join(instance, 'package.json'),
+      JSON.stringify({ name: 'dsh-profile-web', dependencies: { 'dsh-ops': '^0.5.2', linked: 'link:../external/linked' } }),
+    );
+    copyTree(oldModules, newModules);
+    fs.mkdirSync(path.join(newModules, '.pnpm'), { recursive: true });
+    fs.symlinkSync(path.join(oldModules, '.pnpm', 'dsh-ops@0.5.2', 'node_modules', 'dsh-ops'), path.join(newModules, 'dsh-ops'), 'junction');
+    fs.symlinkSync(path.join(external, 'linked'), path.join(newModules, 'linked'), 'junction');
+    fs.symlinkSync(path.join(external, 'stale'), path.join(newModules, 'stale-pkg'), 'junction');
+
+    const repaired = repairProfileModules(instance);
+    assert.equal(repaired.ok, true);
+    assert.equal(repaired.metadataUpdated, true);
+    assert.equal(repaired.stateUpdated, true);
+    assert.ok(repaired.linksRemapped >= 1);
+    assert.equal(repaired.linksDereferenced, 1);
+    assert.ok(repaired.linksRemoved >= 1);
+
+    const metadata = JSON.parse(fs.readFileSync(path.join(newModules, '.modules.yaml'), 'utf8'));
+    assert.equal(metadata.virtualStoreDir, path.join(newModules, '.pnpm'));
+    const state = JSON.parse(fs.readFileSync(path.join(newModules, '.pnpm-workspace-state-v1.json'), 'utf8'));
+    assert.deepEqual(Object.keys(state.projects), [instance]);
+
+    const linkTarget = path.resolve(fs.readlinkSync(path.join(newModules, 'dsh-ops')));
+    assert.equal(linkTarget.toLowerCase(), path.join(newModules, '.pnpm', 'dsh-ops@0.5.2', 'node_modules', 'dsh-ops').toLowerCase());
+    assert.equal(fs.lstatSync(path.join(newModules, 'linked')).isSymbolicLink(), false, '声明为 link: 的依赖应复制为真实目录');
+    assert.equal(fs.existsSync(path.join(newModules, 'linked', 'index.js')), true);
+    assert.equal(fs.existsSync(path.join(newModules, 'stale-pkg')), false, '未声明的外部链接应移除');
+
+    const again = repairProfileModules(instance);
+    assert.equal(again.changed, false, '重复修复应是无操作');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a recorded pnpm store on another volume is moved to the profile volume', { skip: process.platform !== 'win32' }, () => {
+  const root = tempDir('storefix');
+  // Keep the host's user/global pnpm config out of the way: an env store on a
+  // foreign volume is ignored exactly like pnpm does, so the default applies.
+  const previousStoreDir = process.env.npm_config_store_dir;
+  process.env.npm_config_store_dir = 'Z:\\dshm-test-store';
+  try {
+    const profile = path.join(root, 'web');
+    const modulesDir = path.join(profile, 'node_modules');
+    const volumeRoot = path.parse(path.resolve(modulesDir)).root;
+    const foreignVolume = volumeRoot.toLowerCase() === 'd:\\' ? 'C:\\' : 'D:\\';
+    write(path.join(modulesDir, 'dsh-ops', 'index.js'), 'module.exports = 1;');
+    write(
+      path.join(modulesDir, '.modules.yaml'),
+      JSON.stringify({
+        nodeLinker: 'hoisted',
+        packageManager: 'pnpm@11.28.5',
+        storeDir: path.join(foreignVolume, 'pnpm', 'store', 'v11'),
+        virtualStoreDir: path.join(modulesDir, '.pnpm'),
+      }),
+    );
+
+    const repaired = repairProfileModules(profile);
+    assert.equal(repaired.storeDirUpdated, true);
+    assert.equal(repaired.changed, true);
+    const metadata = JSON.parse(fs.readFileSync(path.join(modulesDir, '.modules.yaml'), 'utf8'));
+    assert.equal(metadata.storeDir, path.join(volumeRoot, '.pnpm-store', 'v11'));
+    assert.equal(metadata.virtualStoreDir, path.join(modulesDir, '.pnpm'));
+
+    const again = repairProfileModules(profile);
+    assert.equal(again.changed, false, '重复修复应是无操作');
+  } finally {
+    if (previousStoreDir === undefined) delete process.env.npm_config_store_dir;
+    else process.env.npm_config_store_dir = previousStoreDir;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a same-volume custom pnpm store is never rewritten', { skip: process.platform !== 'win32' }, () => {
+  const root = tempDir('storekeep');
+  try {
+    const profile = path.join(root, 'web');
+    const modulesDir = path.join(profile, 'node_modules');
+    const volumeRoot = path.parse(path.resolve(modulesDir)).root;
+    const customStore = path.join(volumeRoot, 'custom-pnpm-store', 'v11');
+    write(path.join(modulesDir, 'dsh-ops', 'index.js'), 'module.exports = 1;');
+    write(
+      path.join(modulesDir, '.modules.yaml'),
+      JSON.stringify({
+        nodeLinker: 'hoisted',
+        packageManager: 'pnpm@11.28.5',
+        storeDir: customStore,
+        virtualStoreDir: path.join(modulesDir, '.pnpm'),
+      }),
+    );
+
+    const repaired = repairProfileModules(profile);
+    assert.equal(repaired.storeDirUpdated, false);
+    assert.equal(repaired.changed, false);
+    const metadata = JSON.parse(fs.readFileSync(path.join(modulesDir, '.modules.yaml'), 'utf8'));
+    assert.equal(metadata.storeDir, customStore);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('expected pnpm store follows the profile volume and its .npmrc', { skip: process.platform !== 'win32' }, () => {
+  const profile = 'C:\\instances\\web';
+  const modulesDir = path.join(profile, 'node_modules');
+  const previousStoreDir = process.env.npm_config_store_dir;
+  process.env.npm_config_store_dir = 'Z:\\dshm-test-store';
+  try {
+    assert.equal(
+      resolveExpectedStoreDir(profile, modulesDir, 'D:\\pnpm\\store\\v11', { packageManager: 'pnpm@11.28.5' }),
+      'C:\\.pnpm-store\\v11',
+    );
+    // Without a `v<N>` suffix the store layout version comes from the pnpm major.
+    assert.equal(
+      resolveExpectedStoreDir(profile, modulesDir, 'D:\\somewhere', { packageManager: 'pnpm@9.15.0' }),
+      'C:\\.pnpm-store\\v3',
+    );
+    assert.equal(resolveExpectedStoreDir(profile, modulesDir, 'D:\\somewhere', {}), '');
+  } finally {
+    if (previousStoreDir === undefined) delete process.env.npm_config_store_dir;
+    else process.env.npm_config_store_dir = previousStoreDir;
+  }
+});
+
+test('a profile-level store-dir on the same volume is honoured', { skip: process.platform !== 'win32' }, () => {
+  const root = tempDir('npmrc');
+  const previousStoreDir = process.env.npm_config_store_dir;
+  delete process.env.npm_config_store_dir;
+  try {
+    const profile = path.join(root, 'web');
+    const modulesDir = path.join(profile, 'node_modules');
+    const volumeRoot = path.parse(path.resolve(modulesDir)).root;
+    write(path.join(profile, '.npmrc'), `store-dir=${path.join(volumeRoot, 'my-store')}\n`);
+    write(path.join(modulesDir, 'dsh-ops', 'index.js'), 'module.exports = 1;');
+    write(
+      path.join(modulesDir, '.modules.yaml'),
+      JSON.stringify({
+        nodeLinker: 'hoisted',
+        packageManager: 'pnpm@11.28.5',
+        storeDir: path.join(volumeRoot.toLowerCase() === 'd:\\' ? 'C:\\' : 'D:\\', 'pnpm', 'store', 'v11'),
+        virtualStoreDir: path.join(modulesDir, '.pnpm'),
+      }),
+    );
+
+    const repaired = repairProfileModules(profile);
+    assert.equal(repaired.storeDirUpdated, true);
+    const metadata = JSON.parse(fs.readFileSync(path.join(modulesDir, '.modules.yaml'), 'utf8'));
+    assert.equal(metadata.storeDir, path.join(volumeRoot, 'my-store'));
+  } finally {
+    if (previousStoreDir === undefined) delete process.env.npm_config_store_dir;
+    else process.env.npm_config_store_dir = previousStoreDir;
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 

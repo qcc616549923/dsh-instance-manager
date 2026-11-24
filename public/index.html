@@ -42,6 +42,10 @@
           <button class="icon-btn" id="btn-settings" title="设置" aria-label="设置">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.08A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.08A1.65 1.65 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
+          <button class="btn" id="btn-import-instance" title="从导出的实例归档（.zip）导入">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0 4 4m-4-4L8 8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" stroke-linecap="round"/></svg>
+            导入实例
+          </button>
           <button class="btn btn-primary" id="btn-create">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
             新建实例
@@ -382,6 +386,16 @@
             <div><span>管理器版本</span><strong id="settings-version">—</strong></div>
             <div class="settings-wide"><span>数据目录</span><strong id="settings-data">—</strong></div>
           </div>
+          <div class="backup-box">
+            <div class="backup-head">
+              <h3>配置备份</h3>
+              <p>导出管理器设置与实例清单（JSON）。不含 API KEY、也不含实例数据；实例数据请用卡片上的「导出」按钮单独备份。</p>
+            </div>
+            <div class="backup-actions">
+              <button type="button" class="btn btn-sm" id="settings-export-config">导出配置</button>
+              <button type="button" class="btn btn-sm" id="settings-import-config">导入配置…</button>
+            </div>
+          </div>
           <div class="form-error" id="settings-error" hidden></div>
         </div>
         <footer class="modal-foot">
@@ -391,6 +405,121 @@
         </footer>
       </div>
     </div>
+
+    <div class="modal" id="modal-export" hidden>
+      <div class="modal-panel modal-narrow">
+        <header class="modal-head">
+          <div>
+            <h2>导出实例</h2>
+            <p>把实例的配置与数据打包成 .zip 归档</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <p class="export-target" id="export-target">—</p>
+          <label class="check-line">
+            <input type="checkbox" id="export-modules" checked>
+            <span>包含插件依赖 <code>node_modules</code>（体积较大，但离线可用）</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="export-credentials" checked>
+            <span>包含 API KEY 凭据（<code>.credentials.yaml</code>，明文）</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="export-logs">
+            <span>包含日志</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="export-work">
+            <span>包含工作目录中的文件（可能很大，默认不导出）</span>
+          </label>
+          <div class="warn-note">归档里是实例的完整配置（会话、存储、插件、凭据），请妥善保管。导出前需要先停止实例。</div>
+          <div class="form-error" id="export-error" hidden></div>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="button" class="btn btn-primary" id="btn-do-export">开始导出</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-import-instance" hidden>
+      <div class="modal-panel modal-narrow">
+        <header class="modal-head">
+          <div>
+            <h2>导入实例</h2>
+            <p>从 .zip 归档创建一个新实例</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>实例归档文件</span>
+            <input type="file" id="import-file" accept=".zip,application/zip">
+            <small id="import-file-note">由本管理器的「导出实例」生成的 .zip 文件</small>
+          </label>
+          <label class="field">
+            <span>实例名称（可选）</span>
+            <input id="import-name" maxlength="40" placeholder="留空使用归档中的名称">
+          </label>
+          <label class="field">
+            <span>实例根目录（可选）</span>
+            <div class="path-field">
+              <input id="import-root" placeholder="留空导入到管理器数据目录的 instances 下">
+              <button type="button" class="btn btn-ghost" data-browse="import-root">浏览…</button>
+            </div>
+            <small>归档中的原目录不会覆盖本机路径；数据会解压到这里的标准子目录。</small>
+          </label>
+          <div class="import-progress" id="import-progress" hidden><span class="spin" style="display:inline-flex"></span><span id="import-progress-text">导入中…</span></div>
+          <div class="form-error" id="import-error" hidden></div>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="button" class="btn btn-primary" id="btn-do-import">导入实例</button>
+        </footer>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-config-import" hidden>
+      <div class="modal-panel modal-narrow">
+        <header class="modal-head">
+          <div>
+            <h2>导入管理器配置</h2>
+            <p>恢复实例清单与管理器设置</p>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+        <div class="modal-body">
+          <div class="import-summary" id="config-import-summary">—</div>
+          <label class="check-line">
+            <input type="radio" name="config-mode" value="merge" checked>
+            <span>合并：保留现有实例，只补充缺失的实例记录</span>
+          </label>
+          <label class="check-line">
+            <input type="radio" name="config-mode" value="replace">
+            <span>覆盖：先移除现有实例<strong>记录</strong>（不删除任何数据），再导入</span>
+          </label>
+          <label class="check-line">
+            <input type="checkbox" id="config-apply-settings" checked>
+            <span>同时导入管理器设置（仅应用本机有效的安装目录、桌面目录等）</span>
+          </label>
+          <div class="warn-note">导入只恢复“实例清单和路径”，不会复制实例数据。要带走数据请用实例卡片上的「导出」。</div>
+          <div class="form-error" id="config-import-error" hidden></div>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="button" class="btn btn-primary" id="btn-do-config-import">导入</button>
+        </footer>
+      </div>
+    </div>
+
+    <input type="file" id="config-import-file" accept=".json,application/json" hidden>
 
     <div class="toasts" id="toasts" aria-live="polite"></div>
 

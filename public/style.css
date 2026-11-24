@@ -689,6 +689,66 @@ svg { display: block; }
 }
 .warn-note code { font-size: 11px; }
 
+/* Import / export */
+.backup-box {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  background: rgba(7, 13, 23, 0.4);
+  border-radius: 11px;
+  padding: 12px 13px;
+}
+.backup-head h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.backup-head p { margin: 0; color: var(--muted-2); font-size: 11.5px; line-height: 1.6; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.export-target {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(7, 13, 23, 0.45);
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+.export-target strong { color: var(--text); }
+.import-summary {
+  border: 1px solid var(--line-soft);
+  background: rgba(7, 13, 23, 0.45);
+  border-radius: 9px;
+  padding: 10px 11px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-all;
+}
+.import-summary strong { color: var(--text); }
+.import-summary .import-warn { color: var(--amber); }
+.import-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.import-progress .spin { animation: spin 1s linear infinite; }
+.field input[type="file"] {
+  padding: 7px 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* Toasts */
 .toasts {
   position: fixed;

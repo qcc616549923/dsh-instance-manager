@@ -1,12 +1,12 @@
 {
   "name": "dsh-instance-manager",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "本地 DSH 多实例 Web 管理器：自动检测 DSH 安装、从桌面配置继承插件与 API KEY、自定义实例目录规划",
+  "description": "本地 DSH 多实例 Web 管理器：自动检测 DSH 安装、从桌面配置继承插件与 API KEY、自定义实例目录规划、配置与实例导入导出",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/unit.test.js test/smoke.test.js"
+    "test": "node --test test/unit.test.js test/transfer.test.js test/zip.test.js test/smoke.test.js"
   },
   "engines": {
     "node": ">=20.11"

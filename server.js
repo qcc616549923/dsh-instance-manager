@@ -8,6 +8,15 @@ const { spawn, spawnSync } = require('node:child_process');
 const { Store } = require('./lib/store');
 const { InstanceManager } = require('./lib/manager');
 const { detectDshInstall, commandForInstallDir, resolveInstallDir } = require('./lib/dsh');
+const {
+  managerExportFileName,
+  buildManagerExport,
+  importManagerConfig,
+  archiveFileName,
+  exportInstanceArchive,
+  importInstanceArchive,
+  cleanTempDir,
+} = require('./lib/transfer');
 const { ensureDir, isDirectory, isFile } = require('./lib/util');
 
 const ROOT = __dirname;
@@ -126,6 +135,72 @@ async function readJsonBody(req, limit = 1_000_000) {
   }
 }
 
+/* ---------------- Import / export helpers ---------------- */
+
+function tempFile(prefix, ext) {
+  const dir = path.join(DATA_DIR, 'tmp');
+  ensureDir(dir);
+  return path.join(dir, `${prefix}-${Date.now()}-${require('node:crypto').randomBytes(4).toString('hex')}${ext}`);
+}
+
+async function readBodyToFile(req, destFile, limit = 4 * 1024 * 1024 * 1024 - 1) {
+  ensureDir(path.dirname(destFile));
+  const out = fs.createWriteStream(destFile);
+  let size = 0;
+  try {
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > limit) {
+        const error = new Error('上传的文件过大');
+        error.statusCode = 413;
+        throw error;
+      }
+      if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
+    }
+    await new Promise((resolve, reject) => {
+      out.once('error', reject);
+      out.end(resolve);
+    });
+  } catch (error) {
+    out.destroy();
+    throw error;
+  }
+  if (!size) {
+    const error = new Error('没有收到文件内容');
+    error.statusCode = 400;
+    throw error;
+  }
+  return size;
+}
+
+function downloadHeaders(filename, type, length) {
+  const ascii = String(filename).replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return {
+    'content-type': type,
+    'content-length': length,
+    'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    'cache-control': 'no-store',
+  };
+}
+
+function sendBufferDownload(res, buffer, filename, type = 'application/octet-stream') {
+  res.writeHead(200, downloadHeaders(filename, type, buffer.length));
+  res.end(buffer);
+}
+
+function sendFileDownload(res, file, filename, type = 'application/octet-stream') {
+  const size = fs.statSync(file).size;
+  const cleanup = () => fs.rm(file, { force: true }, () => {});
+  res.writeHead(200, downloadHeaders(filename, type, size));
+  const stream = fs.createReadStream(file);
+  stream.on('error', () => {
+    cleanup();
+    res.destroy();
+  });
+  res.on('close', cleanup);
+  stream.pipe(res);
+}
+
 async function listDirectory(target) {
   const resolved = path.resolve(target);
   const stat = await fs.promises.stat(resolved);
@@ -240,7 +315,7 @@ function openFolder(target) {
 
 function routeApi(req, res, pathname, url) {
   const method = req.method || 'GET';
-  const instanceMatch = pathname.match(/^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|logs|profile|open|sync-desktop))?$/);
+  const instanceMatch = pathname.match(/^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|logs|profile|open|sync-desktop|export))?$/);
 
   if (pathname === '/api/state' && method === 'GET') {
     return sendJson(res, 200, manager.state({
@@ -372,6 +447,60 @@ function routeApi(req, res, pathname, url) {
     return sendJson(res, 200, { ok: true, path: openFolder(DATA_DIR) });
   }
 
+  if (pathname === '/api/config/export' && method === 'GET') {
+    const payload = buildManagerExport(store, { managerVersion: VERSION });
+    return sendBufferDownload(
+      res,
+      Buffer.from(`${JSON.stringify(payload, null, 2)}\n`, 'utf8'),
+      managerExportFileName(),
+      'application/json; charset=utf-8',
+    );
+  }
+
+  if (pathname === '/api/config/import' && method === 'POST') {
+    return readJsonBody(req, 8 * 1024 * 1024).then((body) => {
+      const config = body && body.config !== undefined ? body.config : body;
+      const result = importManagerConfig(store, config, {
+        mode: body && body.mode === 'replace' ? 'replace' : 'merge',
+        applySettings: !body || body.applySettings !== false,
+      });
+      manager.invalidateCommand();
+      return sendJson(res, 200, result);
+    });
+  }
+
+  if (pathname === '/api/instances/import' && method === 'POST') {
+    const name = url.searchParams.get('name') || '';
+    const rootDir = url.searchParams.get('rootDir') || '';
+    if (rootDir && !path.isAbsolute(rootDir)) {
+      const error = new Error('导入的实例根目录必须是绝对路径');
+      error.statusCode = 400;
+      throw error;
+    }
+    const file = tempFile('import', '.zip');
+    return (async () => {
+      try {
+        await readBodyToFile(req, file);
+        const result = await importInstanceArchive({ store, zipFile: file, name, rootDir, managerVersion: VERSION });
+        return sendJson(res, 201, {
+          ok: true,
+          instance: manager.describe(result.instance.id),
+          manifest: {
+            exportedAt: result.manifest.exportedAt || null,
+            hostname: result.manifest.hostname || '',
+            sourceName: (result.manifest.instance && result.manifest.instance.name) || '',
+            sourceLayout: (result.manifest.instance && result.manifest.instance.layout) || null,
+            options: result.manifest.options || {},
+            stats: result.manifest.stats || {},
+          },
+          extracted: result.extracted,
+        });
+      } finally {
+        await fs.promises.rm(file, { force: true }).catch(() => {});
+      }
+    })();
+  }
+
   if (pathname === '/api/fs/list' && method === 'GET') {
     const target = url.searchParams.get('path');
     if (!target) return sendJson(res, 200, listRoots());
@@ -446,6 +575,30 @@ function routeApi(req, res, pathname, url) {
 
     if (action === 'open' && method === 'POST') {
       return readJsonBody(req).then((body) => manager.openPath(id, body.kind).then((value) => sendJson(res, 200, value)));
+    }
+
+    if (action === 'export' && method === 'GET') {
+      const info = manager.describe(id);
+      if (info.status === 'running' || info.status === 'starting' || info.status === 'stopping') {
+        const error = new Error('请先停止实例，再导出实例数据');
+        error.statusCode = 409;
+        throw error;
+      }
+      const options = {
+        modules: url.searchParams.get('modules') !== '0',
+        credentials: url.searchParams.get('credentials') !== '0',
+        logs: url.searchParams.get('logs') === '1',
+        work: url.searchParams.get('work') === '1',
+      };
+      const file = tempFile('export', '.zip');
+      return exportInstanceArchive({ instance: store.get(id), destFile: file, managerVersion: VERSION, options })
+        .then(() => {
+          sendFileDownload(res, file, archiveFileName(info.name), 'application/zip');
+        })
+        .catch((error) => {
+          fs.rm(file, { force: true }, () => {});
+          throw error;
+        });
     }
   }
 
@@ -567,6 +720,11 @@ function listenOn(port, host) {
 
 async function main() {
   ensureDir(DATA_DIR);
+  try {
+    cleanTempDir(DATA_DIR);
+  } catch {
+    // A leftover temp file never blocks startup.
+  }
   managerLock = acquireManagerLock(DATA_DIR);
   const configuredPort = Number.isInteger(args.port) && args.port >= 0 ? args.port : store.settings.managerPort || 53800;
   let address = null;

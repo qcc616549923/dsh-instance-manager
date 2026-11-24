@@ -30,6 +30,8 @@ const state = {
   desktop: null,
   desktopInstall: null,
   offline: false,
+  exportId: null,
+  configImport: null,
 };
 
 const STATUS = {
@@ -57,6 +59,7 @@ const ICON = {
   error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16h.01" stroke-linecap="round"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>',
   sync: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h11a4 4 0 0 1 4 4v1M20 17H9a4 4 0 0 1-4-4v-1" stroke-linecap="round"/><path d="m17 4 3 3-3 3M7 20l-3-3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v11m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 19h14" stroke-linecap="round"/></svg>',
 };
 
 function esc(value) {
@@ -236,6 +239,7 @@ function cardHtml(instance) {
         <span class="spacer"></span>
         <button class="icon-btn" data-action="logs" title="查看日志">${ICON.terminal}</button>
         <button class="icon-btn" data-action="profile" title="实例详情与目录">${ICON.info}</button>
+        <button class="icon-btn" data-action="export" title="导出实例配置与数据">${ICON.download}</button>
         <button class="icon-btn" data-action="edit" title="编辑">${ICON.edit}</button>
         <button class="icon-btn" data-action="delete" title="删除">${ICON.trash}</button>
       </div>
@@ -1003,10 +1007,249 @@ async function copyText(text) {
   }
 }
 
+/* ---------------- Import / export ---------------- */
+
+async function downloadFile(url, fallbackName) {
+  const response = await fetch(url, { headers: { 'x-dshm-token': TOKEN } });
+  if (!response.ok) {
+    let message = `导出失败（HTTP ${response.status}）`;
+    try {
+      const data = JSON.parse(await response.text());
+      if (data && data.error) message = data.error;
+    } catch {
+      // Keep the HTTP message.
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const plain = /filename="([^"]+)"/i.exec(disposition);
+  const filename = encoded ? decodeURIComponent(encoded[1]) : plain ? plain[1] : fallbackName;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+  return { name: filename, bytes: blob.size };
+}
+
+function uploadArchive(url, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('x-dshm-token', TOKEN);
+    xhr.setRequestHeader('content-type', 'application/octet-stream');
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total);
+    });
+    xhr.addEventListener('load', () => {
+      let data = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data);
+        return;
+      }
+      reject(new Error((data && data.error) || `导入失败（HTTP ${xhr.status}）`));
+    });
+    xhr.addEventListener('error', () => reject(new Error('上传失败，请重试')));
+    xhr.addEventListener('abort', () => reject(new Error('已取消上传')));
+    xhr.send(file);
+  });
+}
+
+function openExport(id) {
+  const instance = state.instances.find((item) => item.id === id);
+  if (!instance) return;
+  state.exportId = id;
+  $('export-target').innerHTML = `<strong>${esc(instance.name)}</strong> · 数据目录 ${esc(instance.homeDir)}`;
+  const running = instance.status === 'running' || instance.status === 'starting' || instance.status === 'stopping';
+  $('btn-do-export').disabled = running;
+  setFormError($('export-error'), running ? '实例正在运行：请先停止，再导出。' : '');
+  openModal($('modal-export'));
+}
+
+async function doExport() {
+  if (!state.exportId) return;
+  const instance = state.instances.find((item) => item.id === state.exportId);
+  const button = $('btn-do-export');
+  const params = new URLSearchParams({
+    modules: $('export-modules').checked ? '1' : '0',
+    credentials: $('export-credentials').checked ? '1' : '0',
+    logs: $('export-logs').checked ? '1' : '0',
+    work: $('export-work').checked ? '1' : '0',
+  });
+  setFormError($('export-error'), '');
+  button.disabled = true;
+  button.textContent = '导出中…';
+  try {
+    const result = await downloadFile(
+      `/api/instances/${encodeURIComponent(state.exportId)}/export?${params}`,
+      `dshm-${instance ? instance.name : 'instance'}.zip`,
+    );
+    toast(`已导出 ${result.name}（${formatBytes(result.bytes)}）`, 'success', 6000);
+    closeModal($('modal-export'));
+  } catch (error) {
+    setFormError($('export-error'), error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '开始导出';
+  }
+}
+
+function openImportInstance() {
+  $('import-file').value = '';
+  $('import-name').value = '';
+  $('import-root').value = '';
+  $('import-file-note').textContent = '由本管理器的「导出实例」生成的 .zip 文件';
+  $('import-progress').hidden = true;
+  setFormError($('import-error'), '');
+  $('btn-do-import').disabled = false;
+  openModal($('modal-import-instance'));
+}
+
+async function doImportInstance() {
+  const file = $('import-file').files && $('import-file').files[0];
+  if (!file) {
+    setFormError($('import-error'), '请先选择要导入的 .zip 归档');
+    return;
+  }
+  const button = $('btn-do-import');
+  const progress = $('import-progress');
+  const label = $('import-progress-text');
+  const query = new URLSearchParams();
+  const name = $('import-name').value.trim();
+  const rootDir = $('import-root').value.trim();
+  if (name) query.set('name', name);
+  if (rootDir) query.set('rootDir', rootDir);
+  setFormError($('import-error'), '');
+  button.disabled = true;
+  button.textContent = '导入中…';
+  progress.hidden = false;
+  label.textContent = `上传中 0%（${formatBytes(file.size)}）`;
+  try {
+    const result = await uploadArchive(`/api/instances/import?${query}`, file, (ratio) => {
+      label.textContent = `上传中 ${Math.round(ratio * 100)}%（${formatBytes(file.size)}）`;
+    });
+    label.textContent = '正在解压与修复依赖…';
+    const instance = result.instance;
+    toast(`实例「${instance.name}」已导入（${formatBytes(result.extracted.bytes)}）`, 'success', 6000);
+    const sourceRoot = result.manifest && result.manifest.sourceLayout ? result.manifest.sourceLayout.rootDir : '';
+    if (sourceRoot && instance && sourceRoot !== instance.layout.rootDir) {
+      toast(`归档中的原目录为 ${sourceRoot}，已导入到 ${instance.layout.rootDir}`, 'info', 9000);
+    }
+    closeModal($('modal-import-instance'));
+    await loadState({ silent: true });
+  } catch (error) {
+    setFormError($('import-error'), error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '导入实例';
+    progress.hidden = true;
+  }
+}
+
+async function exportManagerConfig() {
+  try {
+    const result = await downloadFile('/api/config/export', 'dshm-manager.json');
+    toast(`管理器配置已导出：${result.name}`, 'success', 5000);
+  } catch (error) {
+    toast(`导出失败：${error.message}`, 'error');
+  }
+}
+
+function triggerConfigImport() {
+  $('config-import-file').click();
+}
+
+async function handleConfigFile(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  let data = null;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    toast('无法读取配置文件：不是合法的 JSON', 'error');
+    return;
+  }
+  if (!data || !Array.isArray(data.instances)) {
+    toast('这不是管理器配置导出文件', 'error');
+    return;
+  }
+  state.configImport = data;
+  const names = data.instances
+    .slice(0, 6)
+    .map((item) => esc(String((item && (item.name || item.id)) || '?')))
+    .join('、');
+  $('config-import-summary').innerHTML = [
+    `<div>文件：<strong>${esc(file.name)}</strong></div>`,
+    `<div>导出时间：${esc(data.exportedAt || '未知')}${data.hostname ? ` · ${esc(data.hostname)}` : ''}</div>`,
+    `<div>实例：<strong>${data.instances.length}</strong> 个${names ? `（${names}${data.instances.length > 6 ? '…' : ''}）` : ''}</div>`,
+    `<div>设置：${data.settings ? '包含安装目录、桌面目录等偏好' : '未包含'}</div>`,
+  ].join('');
+  setFormError($('config-import-error'), '');
+  openModal($('modal-config-import'));
+}
+
+async function doConfigImport() {
+  if (!state.configImport) return;
+  const checked = document.querySelector('input[name="config-mode"]:checked');
+  const mode = checked ? checked.value : 'merge';
+  const button = $('btn-do-config-import');
+  button.disabled = true;
+  button.textContent = '导入中…';
+  try {
+    const result = await api('/api/config/import', {
+      method: 'POST',
+      body: { config: state.configImport, mode, applySettings: $('config-apply-settings').checked },
+    });
+    const parts = [`导入 ${result.imported.length} 个实例`];
+    if (result.skipped && result.skipped.length) parts.push(`跳过 ${result.skipped.length} 个`);
+    toast(parts.join('，'), 'success', 5000);
+    const warnings = result.warnings || [];
+    if (warnings.length) toast(warnings.slice(0, 2).join('；'), 'info', 10_000);
+    closeModal($('modal-config-import'));
+    state.configImport = null;
+    await loadState({ silent: true });
+  } catch (error) {
+    setFormError($('config-import-error'), error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '导入';
+  }
+}
+
 /* ---------------- Event wiring ---------------- */
 
 $('btn-create').addEventListener('click', () => openInstanceModal());
 $('btn-empty-create').addEventListener('click', () => openInstanceModal());
+$('btn-import-instance').addEventListener('click', openImportInstance);
+$('btn-do-export').addEventListener('click', doExport);
+$('btn-do-import').addEventListener('click', doImportInstance);
+$('settings-export-config').addEventListener('click', exportManagerConfig);
+$('settings-import-config').addEventListener('click', triggerConfigImport);
+$('btn-do-config-import').addEventListener('click', doConfigImport);
+$('config-import-file').addEventListener('change', handleConfigFile);
+$('import-file').addEventListener('change', () => {
+  const file = $('import-file').files && $('import-file').files[0];
+  $('import-file-note').textContent = file
+    ? `${file.name} · ${formatBytes(file.size)}`
+    : '由本管理器的「导出实例」生成的 .zip 文件';
+});
+$('modal-import-instance').addEventListener('click', (event) => {
+  const browse = event.target.closest('[data-browse]');
+  if (!browse) return;
+  const target = browse.getAttribute('data-browse');
+  if (!target) return;
+  openPicker($(target)?.value.trim() || '', target, '选择目录');
+});
 $('btn-refresh').addEventListener('click', () => loadState().then(() => toast('状态已刷新', 'success', 1600)));
 $('btn-settings').addEventListener('click', openSettings);
 $('form-instance').addEventListener('submit', submitInstance);
@@ -1091,6 +1334,7 @@ $('instance-grid').addEventListener('click', (event) => {
   else if (action === 'open') openInstanceUrl(instance);
   else if (action === 'logs') openLogs(id);
   else if (action === 'profile') openProfile(id);
+  else if (action === 'export') openExport(id);
   else if (action === 'edit') openInstanceModal(instance);
   else if (action === 'delete') openDelete(id);
 });
